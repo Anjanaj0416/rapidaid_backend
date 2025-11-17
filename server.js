@@ -19,28 +19,27 @@ const app = express();
 // CORS Configuration - FIXED
 // ============================================
 const corsOptions = {
-    origin: function (origin, callback) {
-        // Allow requests with no origin (mobile apps, Postman, etc.)
-        if (!origin) return callback(null, true);
-        
-        const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',') || [
-            'http://localhost:3001',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://127.0.0.1:3001',
-            'http://127.0.0.1:5173'
-        ];
-        
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            console.log('⚠️ CORS blocked origin:', origin);
-            callback(null, true); // Allow anyway in development
-        }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps)
+    if (!origin) return callback(null, true);
+    
+    // Allow all localhost origins (for Flutter web)
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    
+    // For production, check allowed origins
+    const allowedOrigins = (process.env.CORS_ORIGIN || '*').split(',');
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('⚠️ CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
 // Middleware
@@ -49,6 +48,7 @@ app.use(helmet()); // Security headers
 app.use(morgan('dev')); // Logging
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.options('*', cors(corsOptions));
 
 // Database connection
 mongoose.connect(process.env.MONGODB_URI)
@@ -103,6 +103,15 @@ app.use((err, req, res, next) => {
         error: err.message || 'Internal server error',
         ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
     });
+});
+
+// SIMPLE CORS - Allow everything (development only)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', '*');
+  res.header('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
 });
 
 // Start server
