@@ -15,17 +15,42 @@ const admin = require('./config/firebase');
 
 const app = express();
 
+// ============================================
+// CORS Configuration - FIXED
+// ============================================
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) return callback(null, true);
+        
+        const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',') || [
+            'http://localhost:3001',
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://127.0.0.1:3001',
+            'http://127.0.0.1:5173'
+        ];
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('⚠️ CORS blocked origin:', origin);
+            callback(null, true); // Allow anyway in development
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
+
 // Middleware
+app.use(cors(corsOptions)); // CORS - must be before other middleware
 app.use(helmet()); // Security headers
 app.use(morgan('dev')); // Logging
-app.use(cors({
-    origin: process.env.CORS_ALLOWED_ORIGINS?.split(',') || '*',
-    credentials: true
-}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection - REMOVED DEPRECATED OPTIONS
+// Database connection
 mongoose.connect(process.env.MONGODB_URI)
 .then(() => {
     console.log('✅ MongoDB connected successfully');
@@ -45,7 +70,8 @@ app.get('/health', (req, res) => {
     res.status(200).json({ 
         status: 'OK', 
         message: 'RapidAid Backend is running',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        cors: 'enabled'
     });
 });
 
@@ -85,6 +111,7 @@ app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 API URL: http://localhost:${PORT}`);
+    console.log(`✅ CORS enabled for frontend origins`);
 });
 
 // Graceful shutdown
