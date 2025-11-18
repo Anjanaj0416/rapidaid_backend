@@ -6,7 +6,10 @@ const admin = require('../config/firebase');
 // Send police alert (main function)
 exports.sendPoliceAlert = async (req, res) => {
     try {
-        const { userId, type, lat, lng, userPhone } = req.body;
+        // ✅ FIXED: Added 'description' to destructuring
+        const { userId, type, lat, lng, userPhone, description } = req.body;
+
+        console.log('📥 Received alert request:', { userId, type, lat, lng, userPhone, description });
 
         // Validation
         if (!lat || !lng) {
@@ -30,22 +33,27 @@ exports.sendPoliceAlert = async (req, res) => {
             });
         }
 
-        // Create alert record
+        console.log('✅ Found nearest station:', {
+            name: nearestStation.stationName,
+            distance: nearestStation.distance
+        });
+
+        // ✅ FIXED: Create alert record with all fields properly assigned
         const alert = new Alert({
             userId: userId || 'ANONYMOUS',
-            userPhone,  // ✅ Add this
+            userPhone: userPhone || null,  // ✅ Store user phone
             type: type || 'police',
             lat: parseFloat(lat),
             lng: parseFloat(lng),
             stationId: nearestStation._id,
             stationName: nearestStation.stationName,
-            userPhone,
-            description,
+            description: description || 'Police assistance required',  // ✅ Use description or default
             distance: nearestStation.distance,
             priority: 'high'
         });
 
         await alert.save();
+        console.log('✅ Alert saved to database:', alert._id);
 
         // Send FCM notification to nearest station
         let notificationSent = false;
@@ -65,7 +73,7 @@ exports.sendPoliceAlert = async (req, res) => {
                         distance: nearestStation.distance.toString(),
                         stationId: nearestStation._id.toString(),
                         stationName: nearestStation.stationName,
-                        userPhone: userPhone || '',
+                        userPhone: userPhone || '',  // ✅ Include user phone in notification
                         timestamp: new Date().toISOString(),
                         priority: 'high'
                     },
@@ -112,26 +120,21 @@ exports.sendPoliceAlert = async (req, res) => {
             console.warn('⚠️ No FCM token available for station:', nearestStation.stationName);
         }
 
-        res.status(201).json({
+        // Return success response
+        res.status(200).json({
             success: true,
-            message: 'Alert sent successfully',
+            message: 'Police alert sent successfully',
             data: {
                 alertId: alert._id,
-                station: {
-                    id: nearestStation._id,
-                    name: nearestStation.stationName,
-                    phone: nearestStation.phone,
-                    distance: nearestStation.distance,
-                    lat: nearestStation.lat,
-                    lng: nearestStation.lng
-                },
-                notificationSent,
-                timestamp: alert.createdAt
+                stationName: nearestStation.stationName,
+                distance: nearestStation.distance,
+                notificationSent: notificationSent,
+                userPhone: userPhone || null  // ✅ Return user phone in response
             }
         });
 
     } catch (error) {
-        console.error('Send alert error:', error);
+        console.error('❌ Error in sendPoliceAlert:', error);
         res.status(500).json({
             success: false,
             error: 'Failed to send alert',
@@ -140,6 +143,138 @@ exports.sendPoliceAlert = async (req, res) => {
     }
 };
 
+exports.getStationAlerts = async (req, res) => {
+    try {
+        const { stationId } = req.params;
+        const { status, limit = 100 } = req.query;
+
+        const query = { stationId };
+        if (status) query.status = status;
+
+        const alerts = await Alert.find(query)
+            .sort({ createdAt: -1 })
+            .limit(parseInt(limit));
+
+        res.status(200).json({
+            success: true,
+            count: alerts.length,
+            data: alerts
+        });
+
+    } catch (error) {
+        console.error('Get station alerts error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch station alerts',
+            details: error.message
+        });
+    }
+};
+
+// Get single alert details
+exports.getAlertById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const alert = await Alert.findById(id)
+            .populate('stationId', 'stationName phone lat lng address');
+
+        if (!alert) {
+            return res.status(404).json({
+                success: false,
+                error: 'Alert not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: alert
+        });
+
+    } catch (error) {
+        console.error('Get alert error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch alert',
+            details: error.message
+        });
+    }
+};
+
+// Acknowledge alert (police officer responds)
+exports.acknowledgeAlert = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const alert = await Alert.findById(id);
+
+        if (!alert) {
+            return res.status(404).json({
+                success: false,
+                error: 'Alert not found'
+            });
+        }
+
+        if (alert.status !== 'pending') {
+            return res.status(400).json({
+                success: false,
+                error: `Alert is already ${alert.status}`
+            });
+        }
+
+        alert.status = 'acknowledged';
+        alert.responseTime = new Date();
+        await alert.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Alert acknowledged successfully',
+            data: alert
+        });
+
+    } catch (error) {
+        console.error('Acknowledge alert error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to acknowledge alert',
+            details: error.message
+        });
+    }
+};
+
+// Resolve alert
+exports.resolveAlert = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const alert = await Alert.findById(id);
+
+        if (!alert) {
+            return res.status(404).json({
+                success: false,
+                error: 'Alert not found'
+            });
+        }
+
+        alert.status = 'resolved';
+        alert.resolvedTime = new Date();
+        await alert.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Alert resolved successfully',
+            data: alert
+        });
+
+    } catch (error) {
+        console.error('Resolve alert error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to resolve alert',
+            details: error.message
+        });
+    }
+};
 // Get all alerts (for admin/dashboard)
 exports.getAllAlerts = async (req, res) => {
     try {
