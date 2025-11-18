@@ -6,7 +6,7 @@ const admin = require('../config/firebase');
 // Send police alert (main function)
 exports.sendPoliceAlert = async (req, res) => {
     try {
-        const { userId, type, lat, lng, userPhone, description } = req.body;
+        const { userId, type, lat, lng, userPhone } = req.body;
 
         // Validation
         if (!lat || !lng) {
@@ -33,6 +33,7 @@ exports.sendPoliceAlert = async (req, res) => {
         // Create alert record
         const alert = new Alert({
             userId: userId || 'ANONYMOUS',
+            userPhone,  // ✅ Add this
             type: type || 'police',
             lat: parseFloat(lat),
             lng: parseFloat(lng),

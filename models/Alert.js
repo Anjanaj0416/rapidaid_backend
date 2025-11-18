@@ -12,6 +12,10 @@ const alertSchema = new mongoose.Schema({
         enum: ['police', 'ambulance', 'fire'],
         default: 'police'
     },
+    userPhone: {        // ✅ Add this
+        type: String,
+        trim: true
+    },
     lat: {
         type: Number,
         required: [true, 'Latitude is required'],
@@ -79,21 +83,21 @@ alertSchema.index({ type: 1, status: 1 });
 alertSchema.index({ createdAt: -1 });
 
 // Method to mark alert as acknowledged
-alertSchema.methods.acknowledge = function() {
+alertSchema.methods.acknowledge = function () {
     this.status = 'acknowledged';
     this.responseTime = new Date();
     return this.save();
 };
 
 // Method to resolve alert
-alertSchema.methods.resolve = function() {
+alertSchema.methods.resolve = function () {
     this.status = 'resolved';
     this.resolvedTime = new Date();
     return this.save();
 };
 
 // Static method to get recent alerts
-alertSchema.statics.getRecentAlerts = function(limit = 50) {
+alertSchema.statics.getRecentAlerts = function (limit = 50) {
     return this.find()
         .sort({ createdAt: -1 })
         .limit(limit)
@@ -101,10 +105,10 @@ alertSchema.statics.getRecentAlerts = function(limit = 50) {
 };
 
 // Static method to get alerts by station
-alertSchema.statics.getAlertsByStation = function(stationId, status = null) {
+alertSchema.statics.getAlertsByStation = function (stationId, status = null) {
     const query = { stationId };
     if (status) query.status = status;
-    
+
     return this.find(query)
         .sort({ createdAt: -1 })
         .limit(100);
