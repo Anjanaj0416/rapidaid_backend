@@ -7,6 +7,7 @@ const morgan = require('morgan');
 
 // Import routes
 const policeRoutes = require('./routes/policeRoutes');
+const fireRoutes = require('./routes/fireRoutes');
 const alertRoutes = require('./routes/alertRoutes');
 const userRoutes = require('./routes/userRoutes');
 
@@ -16,7 +17,7 @@ const admin = require('./config/firebase');
 const app = express();
 
 // ============================================
-// CORS Configuration - FIXED
+// CORS Configuration
 // ============================================
 const corsOptions = {
   origin: function (origin, callback) {
@@ -38,14 +39,14 @@ const corsOptions = {
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
 // Middleware
-app.use(cors(corsOptions)); // CORS - must be before other middleware
-app.use(helmet()); // Security headers
-app.use(morgan('dev')); // Logging
+app.use(cors(corsOptions));
+app.use(helmet());
+app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.options('*', cors(corsOptions));
@@ -62,6 +63,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // Routes
 app.use('/api/police', policeRoutes);
+app.use('/api/fire', fireRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/user', userRoutes);
 
@@ -82,56 +84,38 @@ app.get('/', (req, res) => {
         version: '1.0.0',
         endpoints: {
             police: '/api/police',
+            fire: '/api/fire',
             alerts: '/api/alerts',
             user: '/api/user'
         }
     });
 });
 
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ 
-        error: 'Route not found',
-        message: `Cannot ${req.method} ${req.path}`
-    });
-});
-
 // Error handling middleware
 app.use((err, req, res, next) => {
-    console.error('Error:', err);
+    console.error('❌ Error:', err);
     res.status(err.status || 500).json({
-        error: err.message || 'Internal server error',
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+        success: false,
+        error: err.message || 'Internal server error'
     });
 });
 
-// SIMPLE CORS - Allow everything (development only)
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', '*');
-  res.header('Access-Control-Allow-Headers', '*');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({
+        success: false,
+        error: 'Route not found'
+    });
 });
 
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 API URL: http://localhost:${PORT}`);
-    console.log(`✅ CORS enabled for frontend origins`);
+    console.log(`🚀 RapidAid Backend running on port ${PORT}`);
+    console.log(`📡 API available at http://localhost:${PORT}/api`);
+    console.log(`🚔 Police routes: http://localhost:${PORT}/api/police`);
+    console.log(`🔥 Fire routes: http://localhost:${PORT}/api/fire`);
+    console.log(`🚨 Alert routes: http://localhost:${PORT}/api/alerts`);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM received. Shutting down gracefully...');
-    mongoose.connection.close();
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT received. Shutting down gracefully...');
-    mongoose.connection.close();
-    process.exit(0);
-});
+module.exports = app;

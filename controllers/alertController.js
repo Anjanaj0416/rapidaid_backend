@@ -1,17 +1,16 @@
 const Alert = require('../models/Alert');
 const PoliceStation = require('../models/PoliceStation');
 const User = require('../models/User');
+const FireStation = require('../models/FireStation');
 const admin = require('../config/firebase');
 
 // Send police alert (main function)
 exports.sendPoliceAlert = async (req, res) => {
     try {
-        // ✅ FIXED: Added 'description' to destructuring
         const { userId, type, lat, lng, userPhone, description } = req.body;
 
-        console.log('📥 Received alert request:', { userId, type, lat, lng, userPhone, description });
+        console.log('📥 Received police alert request:', { userId, type, lat, lng, userPhone });
 
-        // Validation
         if (!lat || !lng) {
             return res.status(400).json({
                 success: false,
@@ -33,29 +32,29 @@ exports.sendPoliceAlert = async (req, res) => {
             });
         }
 
-        console.log('✅ Found nearest station:', {
+        console.log('✅ Found nearest police station:', {
             name: nearestStation.stationName,
             distance: nearestStation.distance
         });
 
-        // ✅ FIXED: Create alert record with all fields properly assigned
+        // Create alert record
         const alert = new Alert({
             userId: userId || 'ANONYMOUS',
-            userPhone: userPhone || null,  // ✅ Store user phone
-            type: type || 'police',
+            userPhone: userPhone || null,
+            type: 'police',
             lat: parseFloat(lat),
             lng: parseFloat(lng),
             stationId: nearestStation._id,
             stationName: nearestStation.stationName,
-            description: description || 'Police assistance required',  // ✅ Use description or default
+            description: description || 'Police assistance required',
             distance: nearestStation.distance,
             priority: 'high'
         });
 
         await alert.save();
-        console.log('✅ Alert saved to database:', alert._id);
+        console.log('✅ Police alert saved to database:', alert._id);
 
-        // Send FCM notification to nearest station
+        // Send FCM notification
         let notificationSent = false;
         if (nearestStation.fcmToken) {
             try {
@@ -66,82 +65,256 @@ exports.sendPoliceAlert = async (req, res) => {
                         body: `Emergency at ${nearestStation.distance.toFixed(2)} km away. Tap to view details.`
                     },
                     data: {
-                        type: 'police',
                         alertId: alert._id.toString(),
+                        type: 'police',
                         lat: lat.toString(),
                         lng: lng.toString(),
-                        distance: nearestStation.distance.toString(),
-                        stationId: nearestStation._id.toString(),
-                        stationName: nearestStation.stationName,
-                        userPhone: userPhone || '',  // ✅ Include user phone in notification
-                        timestamp: new Date().toISOString(),
-                        priority: 'high'
-                    },
-                    android: {
-                        priority: 'high',
-                        notification: {
-                            sound: 'default',
-                            priority: 'high',
-                            channelId: 'emergency_alerts'
-                        }
-                    },
-                    apns: {
-                        payload: {
-                            aps: {
-                                sound: 'default',
-                                contentAvailable: true,
-                                badge: 1
-                            }
-                        }
+                        userPhone: userPhone || '',
+                        userId: userId || 'ANONYMOUS',
+                        timestamp: new Date().toISOString()
                     },
                     webpush: {
-                        notification: {
-                            icon: '/icon.png',
-                            badge: '/badge.png',
-                            requireInteraction: true,
-                            vibrate: [200, 100, 200, 100, 200]
+                        fcmOptions: {
+                            link: '/dashboard'
                         }
                     }
                 };
 
-                const response = await admin.messaging().send(message);
-                console.log('✅ FCM notification sent:', response);
+                await admin.messaging().send(message);
                 notificationSent = true;
-                
-                // Update alert status
-                alert.notificationSent = true;
-                await alert.save();
-
+                console.log('✅ FCM notification sent to police station');
             } catch (fcmError) {
-                console.error('❌ FCM notification error:', fcmError);
-                // Don't fail the request, just log the error
+                console.error('❌ FCM send error:', fcmError);
             }
-        } else {
-            console.warn('⚠️ No FCM token available for station:', nearestStation.stationName);
         }
 
-        // Return success response
-        res.status(200).json({
+        res.status(201).json({
             success: true,
             message: 'Police alert sent successfully',
             data: {
                 alertId: alert._id,
                 stationName: nearestStation.stationName,
                 distance: nearestStation.distance,
-                notificationSent: notificationSent,
-                userPhone: userPhone || null  // ✅ Return user phone in response
+                notificationSent
             }
         });
 
     } catch (error) {
-        console.error('❌ Error in sendPoliceAlert:', error);
+        console.error('❌ Police alert error:', error);
         res.status(500).json({
             success: false,
-            error: 'Failed to send alert',
-            details: error.message
+            error: error.message || 'Failed to send police alert'
         });
     }
 };
+
+// Send fire alert
+exports.sendFireAlert = async (req, res) => {
+    try {
+        const { userId, type, lat, lng, userPhone, description } = req.body;
+
+        console.log('📥 Received fire alert request:', { userId, type, lat, lng, userPhone });
+
+        if (!lat || !lng) {
+            return res.status(400).json({
+                success: false,
+                error: 'User location (lat/lng) is required'
+            });
+        }
+
+        // Find nearest fire station
+        const nearestStation = await FireStation.findNearest(
+            parseFloat(lat),
+            parseFloat(lng),
+            1
+        );
+
+        if (!nearestStation) {
+            return res.status(404).json({
+                success: false,
+                error: 'No active fire stations found'
+            });
+        }
+
+        console.log('✅ Found nearest fire station:', {
+            name: nearestStation.stationName,
+            distance: nearestStation.distance
+        });
+
+        // Create alert record
+        const alert = new Alert({
+            userId: userId || 'ANONYMOUS',
+            userPhone: userPhone || null,
+            type: 'fire',
+            lat: parseFloat(lat),
+            lng: parseFloat(lng),
+            stationId: nearestStation._id,
+            stationName: nearestStation.stationName,
+            description: description || 'Fire emergency - immediate assistance required',
+            distance: nearestStation.distance,
+            priority: 'critical'
+        });
+
+        await alert.save();
+        console.log('✅ Fire alert saved to database:', alert._id);
+
+        // Send FCM notification
+        let notificationSent = false;
+        if (nearestStation.fcmToken) {
+            try {
+                const message = {
+                    token: nearestStation.fcmToken,
+                    notification: {
+                        title: '🔥 FIRE EMERGENCY - Immediate Response Required',
+                        body: `Fire emergency at ${nearestStation.distance.toFixed(2)} km away. Respond immediately!`
+                    },
+                    data: {
+                        alertId: alert._id.toString(),
+                        type: 'fire',
+                        lat: lat.toString(),
+                        lng: lng.toString(),
+                        userPhone: userPhone || '',
+                        userId: userId || 'ANONYMOUS',
+                        timestamp: new Date().toISOString()
+                    },
+                    webpush: {
+                        fcmOptions: {
+                            link: '/dashboard'
+                        }
+                    }
+                };
+
+                await admin.messaging().send(message);
+                notificationSent = true;
+                console.log('✅ FCM notification sent to fire station');
+            } catch (fcmError) {
+                console.error('❌ FCM send error:', fcmError);
+            }
+        }
+
+        res.status(201).json({
+            success: true,
+            message: 'Fire alert sent successfully',
+            data: {
+                alertId: alert._id,
+                stationName: nearestStation.stationName,
+                distance: nearestStation.distance,
+                notificationSent
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Fire alert error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to send fire alert'
+        });
+    }
+};
+
+// Get alerts for a specific station
+exports.getAlertsByStation = async (req, res) => {
+    try {
+        const { stationId } = req.params;
+        const { type } = req.query; // 'police' or 'fire'
+
+        const query = { stationId };
+        if (type) {
+            query.type = type;
+        }
+
+        const alerts = await Alert.find(query)
+            .sort({ createdAt: -1 })
+            .limit(50)
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            count: alerts.length,
+            data: alerts
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching alerts:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch alerts'
+        });
+    }
+};
+
+// Get alert by ID
+exports.getAlertById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const alert = await Alert.findById(id);
+
+        if (!alert) {
+            return res.status(404).json({
+                success: false,
+                error: 'Alert not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: alert
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching alert:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch alert'
+        });
+    }
+};
+
+// Update alert status
+exports.updateAlertStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        const validStatuses = ['pending', 'acknowledged', 'en-route', 'resolved'];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid status. Must be: pending, acknowledged, en-route, or resolved'
+            });
+        }
+
+        const alert = await Alert.findByIdAndUpdate(
+            id,
+            { status },
+            { new: true }
+        );
+
+        if (!alert) {
+            return res.status(404).json({
+                success: false,
+                error: 'Alert not found'
+            });
+        }
+
+        console.log(`✅ Alert ${id} status updated to: ${status}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Alert status updated successfully',
+            data: alert
+        });
+
+    } catch (error) {
+        console.error('❌ Error updating alert status:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update alert status'
+        });
+    }
+};
+
 
 exports.getStationAlerts = async (req, res) => {
     try {
@@ -172,34 +345,7 @@ exports.getStationAlerts = async (req, res) => {
 };
 
 // Get single alert details
-exports.getAlertById = async (req, res) => {
-    try {
-        const { id } = req.params;
 
-        const alert = await Alert.findById(id)
-            .populate('stationId', 'stationName phone lat lng address');
-
-        if (!alert) {
-            return res.status(404).json({
-                success: false,
-                error: 'Alert not found'
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: alert
-        });
-
-    } catch (error) {
-        console.error('Get alert error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch alert',
-            details: error.message
-        });
-    }
-};
 
 // Acknowledge alert (police officer responds)
 exports.acknowledgeAlert = async (req, res) => {
@@ -320,237 +466,3 @@ exports.getAllAlerts = async (req, res) => {
     }
 };
 
-// Get alerts by station ID
-exports.getAlertsByStation = async (req, res) => {
-    try {
-        const { stationId } = req.params;
-        const { status, limit = 100 } = req.query;
-
-        const query = { stationId };
-        if (status) query.status = status;
-
-        const alerts = await Alert.find(query)
-            .sort({ createdAt: -1 })
-            .limit(parseInt(limit));
-
-        res.status(200).json({
-            success: true,
-            count: alerts.length,
-            data: alerts
-        });
-
-    } catch (error) {
-        console.error('Get station alerts error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch station alerts',
-            details: error.message
-        });
-    }
-};
-
-// Get single alert details
-exports.getAlertById = async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        const alert = await Alert.findById(id)
-            .populate('stationId', 'stationName phone lat lng address');
-
-        if (!alert) {
-            return res.status(404).json({
-                success: false,
-                error: 'Alert not found'
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: alert
-        });
-
-    } catch (error) {
-        console.error('Get alert error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch alert',
-            details: error.message
-        });
-    }
-};
-
-// Acknowledge alert (police officer responds)
-exports.acknowledgeAlert = async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        const alert = await Alert.findById(id);
-
-        if (!alert) {
-            return res.status(404).json({
-                success: false,
-                error: 'Alert not found'
-            });
-        }
-
-        if (alert.status !== 'pending') {
-            return res.status(400).json({
-                success: false,
-                error: `Alert is already ${alert.status}`
-            });
-        }
-
-        alert.status = 'acknowledged';
-        alert.responseTime = new Date();
-        await alert.save();
-
-        // Optional: Send notification back to user that help is on the way
-        // This would require user FCM token
-
-        res.status(200).json({
-            success: true,
-            message: 'Alert acknowledged successfully',
-            data: alert
-        });
-
-    } catch (error) {
-        console.error('Acknowledge alert error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to acknowledge alert',
-            details: error.message
-        });
-    }
-};
-
-// Resolve alert (emergency handled)
-exports.resolveAlert = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { notes } = req.body;
-
-        const alert = await Alert.findById(id);
-
-        if (!alert) {
-            return res.status(404).json({
-                success: false,
-                error: 'Alert not found'
-            });
-        }
-
-        alert.status = 'resolved';
-        alert.resolvedTime = new Date();
-        if (notes) alert.description = notes;
-        await alert.save();
-
-        res.status(200).json({
-            success: true,
-            message: 'Alert resolved successfully',
-            data: alert
-        });
-
-    } catch (error) {
-        console.error('Resolve alert error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to resolve alert',
-            details: error.message
-        });
-    }
-};
-
-// Cancel alert
-exports.cancelAlert = async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        const alert = await Alert.findById(id);
-
-        if (!alert) {
-            return res.status(404).json({
-                success: false,
-                error: 'Alert not found'
-            });
-        }
-
-        alert.status = 'cancelled';
-        await alert.save();
-
-        res.status(200).json({
-            success: true,
-            message: 'Alert cancelled successfully',
-            data: alert
-        });
-
-    } catch (error) {
-        console.error('Cancel alert error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to cancel alert',
-            details: error.message
-        });
-    }
-};
-
-// Get alert statistics
-exports.getAlertStats = async (req, res) => {
-    try {
-        const totalAlerts = await Alert.countDocuments();
-        const pendingAlerts = await Alert.countDocuments({ status: 'pending' });
-        const acknowledgedAlerts = await Alert.countDocuments({ status: 'acknowledged' });
-        const resolvedAlerts = await Alert.countDocuments({ status: 'resolved' });
-        
-        // Get alerts by type
-        const policeAlerts = await Alert.countDocuments({ type: 'police' });
-        const ambulanceAlerts = await Alert.countDocuments({ type: 'ambulance' });
-        const fireAlerts = await Alert.countDocuments({ type: 'fire' });
-
-        // Get today's alerts
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayAlerts = await Alert.countDocuments({
-            createdAt: { $gte: today }
-        });
-
-        // Average response time
-        const alertsWithResponse = await Alert.find({
-            responseTime: { $exists: true }
-        });
-
-        let avgResponseTime = 0;
-        if (alertsWithResponse.length > 0) {
-            const totalResponseTime = alertsWithResponse.reduce((acc, alert) => {
-                const responseTime = (alert.responseTime - alert.createdAt) / 1000 / 60; // in minutes
-                return acc + responseTime;
-            }, 0);
-            avgResponseTime = totalResponseTime / alertsWithResponse.length;
-        }
-
-        res.status(200).json({
-            success: true,
-            data: {
-                total: totalAlerts,
-                byStatus: {
-                    pending: pendingAlerts,
-                    acknowledged: acknowledgedAlerts,
-                    resolved: resolvedAlerts
-                },
-                byType: {
-                    police: policeAlerts,
-                    ambulance: ambulanceAlerts,
-                    fire: fireAlerts
-                },
-                today: todayAlerts,
-                avgResponseTime: Math.round(avgResponseTime * 10) / 10 // Round to 1 decimal
-            }
-        });
-
-    } catch (error) {
-        console.error('Get stats error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch statistics',
-            details: error.message
-        });
-    }
-};
