@@ -9,7 +9,7 @@ exports.sendPoliceAlert = async (req, res) => {
     try {
         const { userId, type, lat, lng, userPhone, description } = req.body;
 
-        console.log('📥 Received police alert request:', { userId, type, lat, lng, userPhone });
+        console.log('🔥 Received police alert request:', { userId, type, lat, lng, userPhone });
 
         if (!lat || !lng) {
             return res.status(400).json({
@@ -113,7 +113,7 @@ exports.sendFireAlert = async (req, res) => {
     try {
         const { userId, type, lat, lng, userPhone, description } = req.body;
 
-        console.log('📥 Received fire alert request:', { userId, type, lat, lng, userPhone });
+        console.log('🔥 Received fire alert request:', { userId, type, lat, lng, userPhone });
 
         if (!lat || !lng) {
             return res.status(400).json({
@@ -210,6 +210,41 @@ exports.sendFireAlert = async (req, res) => {
             error: error.message || 'Failed to send fire alert'
         });
     }
+};
+
+// ✅ UPDATED: Get all alerts with optional type filtering
+exports.getAllAlerts = async (req, res) => {
+  try {
+    const { type, limit = 100 } = req.query;
+    
+    console.log('🔥 Fetching alerts with filters:', { type, limit });
+    
+    // Build query
+    const query = {};
+    if (type) {
+      query.type = type; // Filter by type (police, fire, ambulance)
+    }
+
+    const alerts = await Alert.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .lean();
+
+    console.log(`✅ Found ${alerts.length} alerts`);
+
+    res.status(200).json({
+      success: true,
+      count: alerts.length,
+      data: alerts
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching alerts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch alerts'
+    });
+  }
 };
 
 // Get alerts for a specific station
@@ -344,9 +379,6 @@ exports.getStationAlerts = async (req, res) => {
     }
 };
 
-// Get single alert details
-
-
 // Acknowledge alert (police officer responds)
 exports.acknowledgeAlert = async (req, res) => {
     try {
@@ -420,31 +452,4 @@ exports.resolveAlert = async (req, res) => {
             details: error.message
         });
     }
-};
-// Get all alerts (for admin/dashboard)
-// Get all alerts (for dashboard)
-exports.getAllAlerts = async (req, res) => {
-  try {
-    console.log('📥 Fetching all alerts...');
-    
-    const alerts = await Alert.find()
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean();
-
-    console.log(`✅ Found ${alerts.length} alerts`);
-
-    res.status(200).json({
-      success: true,
-      count: alerts.length,
-      data: alerts
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching alerts:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch alerts'
-    });
-  }
 };
