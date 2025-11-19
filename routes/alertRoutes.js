@@ -8,6 +8,8 @@ router.post('/police', alertController.sendPoliceAlert);
 // Send fire alert
 router.post('/fire', alertController.sendFireAlert);
 
+router.get('/', alertController.getAllAlerts);
+
 // Get alerts for a specific station
 router.get('/station/:stationId', alertController.getAlertsByStation);
 

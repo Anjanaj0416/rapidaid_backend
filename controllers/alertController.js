@@ -422,47 +422,29 @@ exports.resolveAlert = async (req, res) => {
     }
 };
 // Get all alerts (for admin/dashboard)
+// Get all alerts (for dashboard)
 exports.getAllAlerts = async (req, res) => {
-    try {
-        const { 
-            status, 
-            type, 
-            stationId, 
-            limit = 50, 
-            page = 1 
-        } = req.query;
+  try {
+    console.log('📥 Fetching all alerts...');
+    
+    const alerts = await Alert.find()
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
 
-        const query = {};
-        if (status) query.status = status;
-        if (type) query.type = type;
-        if (stationId) query.stationId = stationId;
+    console.log(`✅ Found ${alerts.length} alerts`);
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
+    res.status(200).json({
+      success: true,
+      count: alerts.length,
+      data: alerts
+    });
 
-        const alerts = await Alert.find(query)
-            .sort({ createdAt: -1 })
-            .limit(parseInt(limit))
-            .skip(skip)
-            .populate('stationId', 'stationName phone lat lng');
-
-        const total = await Alert.countDocuments(query);
-
-        res.status(200).json({
-            success: true,
-            count: alerts.length,
-            total,
-            page: parseInt(page),
-            pages: Math.ceil(total / parseInt(limit)),
-            data: alerts
-        });
-
-    } catch (error) {
-        console.error('Get alerts error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch alerts',
-            details: error.message
-        });
-    }
+  } catch (error) {
+    console.error('❌ Error fetching alerts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch alerts'
+    });
+  }
 };
-
