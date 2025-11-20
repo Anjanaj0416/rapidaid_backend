@@ -9,7 +9,7 @@ const alertSchema = new mongoose.Schema({
     type: {
         type: String,
         required: [true, 'Alert type is required'],
-        enum: ['police', 'ambulance', 'fire'],
+        enum: ['police', 'ambulance', 'fire'], 
         default: 'police'
     },
     userPhone: {        // ✅ Add this

@@ -2,13 +2,17 @@ const express = require('express');
 const router = express.Router();
 const alertController = require('../controllers/alertController');
 
+
 // Send police alert
 router.post('/police', alertController.sendPoliceAlert);
 
 // Send fire alert
 router.post('/fire', alertController.sendFireAlert);
 
-router.get('/', alertController.getAllAlerts);
+router.post('/ambulance', alertController.sendAmbulanceAlert);  // ✅ Must exist
+
+// Get all alerts (with optional type filter)
+router.get('/', alertController.getAllAlerts); 
 
 // Get alerts for a specific station
 router.get('/station/:stationId', alertController.getAlertsByStation);

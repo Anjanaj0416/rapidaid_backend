@@ -10,6 +10,7 @@ const policeRoutes = require('./routes/policeRoutes');
 const fireRoutes = require('./routes/fireRoutes');
 const alertRoutes = require('./routes/alertRoutes');
 const userRoutes = require('./routes/userRoutes');
+const healthRoutes = require('./routes/healthRoutes');
 
 // Import Firebase Admin
 const admin = require('./config/firebase');
@@ -66,6 +67,7 @@ app.use('/api/police', policeRoutes);
 app.use('/api/fire', fireRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/health', healthRoutes);
 
 // Health check route
 app.get('/health', (req, res) => {
@@ -115,6 +117,7 @@ app.listen(PORT, () => {
     console.log(`📡 API available at http://localhost:${PORT}/api`);
     console.log(`🚔 Police routes: http://localhost:${PORT}/api/police`);
     console.log(`🔥 Fire routes: http://localhost:${PORT}/api/fire`);
+    console.log(`💚 Health routes: http://localhost:${PORT}/api/health`);
     console.log(`🚨 Alert routes: http://localhost:${PORT}/api/alerts`);
 });
 

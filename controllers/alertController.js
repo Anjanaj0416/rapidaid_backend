@@ -3,6 +3,7 @@ const PoliceStation = require('../models/PoliceStation');
 const User = require('../models/User');
 const FireStation = require('../models/FireStation');
 const admin = require('../config/firebase');
+const HealthCenter = require('../models/HealthCenter');
 
 // Send police alert (main function)
 exports.sendPoliceAlert = async (req, res) => {
@@ -213,38 +214,36 @@ exports.sendFireAlert = async (req, res) => {
 };
 
 // ✅ UPDATED: Get all alerts with optional type filtering
+// Get all alerts with optional type filter
 exports.getAllAlerts = async (req, res) => {
-  try {
-    const { type, limit = 100 } = req.query;
-    
-    console.log('🔥 Fetching alerts with filters:', { type, limit });
-    
-    // Build query
-    const query = {};
-    if (type) {
-      query.type = type; // Filter by type (police, fire, ambulance)
+    try {
+        const { type, limit = 100 } = req.query;
+
+        console.log('🔥 Fetching alerts with filters:', { type, limit });
+
+        const query = {};
+        if (type) {
+            query.type = type;  // Filter by type if provided
+        }
+
+        const alerts = await Alert.find(query)
+            .sort({ createdAt: -1 })
+            .limit(parseInt(limit))
+            .populate('stationId', 'stationName centerName phone lat lng');
+
+        console.log(`✅ Found ${alerts.length} alerts`);
+
+        res.status(200).json({
+            success: true,
+            data: alerts
+        });
+    } catch (error) {
+        console.error('❌ Get alerts error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch alerts'
+        });
     }
-
-    const alerts = await Alert.find(query)
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .lean();
-
-    console.log(`✅ Found ${alerts.length} alerts`);
-
-    res.status(200).json({
-      success: true,
-      count: alerts.length,
-      data: alerts
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching alerts:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch alerts'
-    });
-  }
 };
 
 // Get alerts for a specific station
@@ -450,6 +449,110 @@ exports.resolveAlert = async (req, res) => {
             success: false,
             error: 'Failed to resolve alert',
             details: error.message
+        });
+    }
+};
+
+// Send ambulance alert
+exports.sendAmbulanceAlert = async (req, res) => {
+    try {
+        const { userId, type, lat, lng, userPhone, description } = req.body;
+
+        console.log('🚑 Received ambulance alert request:', { userId, type, lat, lng, userPhone });
+
+        if (!lat || !lng) {
+            return res.status(400).json({
+                success: false,
+                error: 'User location (lat/lng) is required'
+            });
+        }
+
+        // Find nearest health center
+        const nearestCenter = await HealthCenter.findNearest(
+            parseFloat(lat),
+            parseFloat(lng),
+            1
+        );
+
+        if (!nearestCenter) {
+            return res.status(404).json({
+                success: false,
+                error: 'No active health centers found'
+            });
+        }
+
+        console.log('✅ Found nearest health center:', {
+            name: nearestCenter.centerName,
+            distance: nearestCenter.distance
+        });
+
+        // Create alert record
+        const alert = new Alert({
+            userId: userId || 'ANONYMOUS',
+            userPhone: userPhone || null,
+            type: 'ambulance',
+            lat: parseFloat(lat),
+            lng: parseFloat(lng),
+            stationId: nearestCenter._id,
+            stationName: nearestCenter.centerName,
+            description: description || 'Medical emergency - ambulance required',
+            distance: nearestCenter.distance,
+            priority: 'critical'
+        });
+
+        await alert.save();
+        console.log('✅ Ambulance alert saved to database:', alert._id);
+
+        // Send FCM notification
+        let notificationSent = false;
+        if (nearestCenter.fcmToken) {
+            try {
+                const message = {
+                    token: nearestCenter.fcmToken,
+                    notification: {
+                        title: '🚑 MEDICAL EMERGENCY - Ambulance Required',
+                        body: `Medical emergency at ${nearestCenter.distance.toFixed(2)} km away. Dispatch ambulance immediately!`
+                    },
+                    data: {
+                        alertId: alert._id.toString(),
+                        type: 'ambulance',
+                        lat: lat.toString(),
+                        lng: lng.toString(),
+                        userPhone: userPhone || '',
+                        userId: userId || 'ANONYMOUS',
+                        timestamp: new Date().toISOString()
+                    },
+                    webpush: {
+                        fcmOptions: {
+                            link: '/dashboard'
+                        }
+                    }
+                };
+
+                await admin.messaging().send(message);
+                notificationSent = true;
+                console.log('✅ FCM notification sent to health center');
+            } catch (fcmError) {
+                console.error('❌ FCM send error:', fcmError);
+            }
+        }
+
+        res.status(201).json({
+            success: true,
+            message: 'Ambulance alert sent successfully',
+            data: {
+                alertId: alert._id,
+                centerName: nearestCenter.centerName,
+                distance: nearestCenter.distance,
+                notificationSent
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Ambulance alert error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to send ambulance alert'
         });
     }
 };
