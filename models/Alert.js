@@ -12,7 +12,7 @@ const alertSchema = new mongoose.Schema({
         enum: ['police', 'ambulance', 'fire'], 
         default: 'police'
     },
-    userPhone: {        // ✅ Add this
+    userPhone: {
         type: String,
         trim: true
     },
@@ -51,10 +51,6 @@ const alertSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
-    userPhone: {
-        type: String,
-        trim: true
-    },
     responseTime: {
         type: Date
     },
@@ -68,6 +64,39 @@ const alertSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    
+    // ✅ NEW: Smart Alert Aggregation Fields
+    isAggregated: {
+        type: Boolean,
+        default: false
+    },
+    parentAlertId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Alert',
+        default: null
+    },
+    reportCount: {
+        type: Number,
+        default: 1 // Starts with the first report
+    },
+    reporters: [{
+        userId: {
+            type: String,
+            required: true
+        },
+        userPhone: {
+            type: String
+        },
+        reportedAt: {
+            type: Date,
+            default: Date.now
+        },
+        location: {
+            lat: Number,
+            lng: Number
+        }
+    }],
+    
     createdAt: {
         type: Date,
         default: Date.now
@@ -81,6 +110,9 @@ alertSchema.index({ userId: 1, createdAt: -1 });
 alertSchema.index({ stationId: 1, status: 1 });
 alertSchema.index({ type: 1, status: 1 });
 alertSchema.index({ createdAt: -1 });
+// ✅ NEW: Index for geospatial aggregation queries
+alertSchema.index({ lat: 1, lng: 1, type: 1, status: 1, createdAt: -1 });
+alertSchema.index({ isAggregated: 1, parentAlertId: 1 });
 
 // Method to mark alert as acknowledged
 alertSchema.methods.acknowledge = function () {
@@ -93,6 +125,26 @@ alertSchema.methods.acknowledge = function () {
 alertSchema.methods.resolve = function () {
     this.status = 'resolved';
     this.resolvedTime = new Date();
+    return this.save();
+};
+
+// ✅ NEW: Method to add a reporter to existing alert
+alertSchema.methods.addReporter = function (userId, userPhone, lat, lng) {
+    // Check if this user already reported this alert
+    const alreadyReported = this.reporters.some(reporter => reporter.userId === userId);
+    
+    if (alreadyReported) {
+        return { success: false, message: 'User already reported this incident' };
+    }
+    
+    this.reporters.push({
+        userId,
+        userPhone,
+        reportedAt: new Date(),
+        location: { lat, lng }
+    });
+    this.reportCount = this.reporters.length;
+    
     return this.save();
 };
 
@@ -113,5 +165,52 @@ alertSchema.statics.getAlertsByStation = function (stationId, status = null) {
         .sort({ createdAt: -1 })
         .limit(100);
 };
+
+// ✅ NEW: Static method to find nearby recent alerts
+alertSchema.statics.findNearbyRecentAlert = async function(lat, lng, type, radiusInMeters = 10, timeWindowSeconds = 90) {
+    const now = new Date();
+    const timeThreshold = new Date(now.getTime() - (timeWindowSeconds * 1000));
+    
+    // Find all recent alerts of the same type within time window
+    const recentAlerts = await this.find({
+        type: type,
+        status: { $in: ['pending', 'acknowledged'] }, // Only active alerts
+        isAggregated: false, // Only parent alerts, not aggregated ones
+        createdAt: { $gte: timeThreshold }
+    });
+    
+    // Calculate distances and find nearby alerts
+    for (const alert of recentAlerts) {
+        const distance = calculateDistance(lat, lng, alert.lat, alert.lng);
+        const distanceInMeters = distance * 1000; // Convert km to meters
+        
+        if (distanceInMeters <= radiusInMeters) {
+            return alert; // Found a nearby alert
+        }
+    }
+    
+    return null; // No nearby alert found
+};
+
+// Haversine formula for distance calculation (returns distance in km)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    
+    const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    
+    return distance;
+}
+
+function toRad(degrees) {
+    return degrees * (Math.PI / 180);
+}
 
 module.exports = mongoose.model('Alert', alertSchema);
